@@ -8,28 +8,22 @@ os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
 import numpy as np
-import pandas as pd
 import streamlit as st
 import tensorflow as tf
 from PIL import Image, ImageDraw, ImageFont
 
 
-st.set_page_config(page_title="Eye State Model Explorer", layout="wide")
+st.set_page_config(page_title="Eye State Model Benchmark", layout="wide")
 
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_MODEL_PATH = str(BASE_DIR / "cnn_classifier.h5")
-DEFAULT_LABELS_PATH = str(BASE_DIR / "labels.txt")
+DEFAULT_MODEL_PATH = "cnn_classifier.h5"
+DEFAULT_LABELS_PATH = "labels.txt"
 FALLBACK_LABELS = ["Closed", "Open", "Partially Closed"]
 IMAGE_SIZE = (128, 128)
-DATASET_DIR = BASE_DIR / "datasets"
-VALIDATION_SPLIT = 0.2
-EVAL_BATCH_SIZE = 16
-EDA_SAMPLE_IMAGES_PER_CLASS = 3
 MODEL_LOCK = threading.Lock()
 
 BENCHMARK_MODELS = {
@@ -204,206 +198,6 @@ def run_live_camera(model, labels, normalize_input: bool):
         media_stream_constraints={"video": True, "audio": False},
         rtc_configuration=rtc_configuration,
     )
-
-
-def dataset_image_files(directory: Path):
-    return [
-        path
-        for path in directory.rglob("*")
-        if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-    ]
-
-
-def dataset_summary(dataset_dir: Path):
-    if not dataset_dir.exists():
-        return {}
-    summary = {}
-    for class_dir in sorted(dataset_dir.iterdir()):
-        if class_dir.is_dir():
-            summary[class_dir.name] = len(dataset_image_files(class_dir))
-    return summary
-
-
-def sample_dataset_images(dataset_dir: Path, per_class: int = EDA_SAMPLE_IMAGES_PER_CLASS):
-    samples = []
-    if not dataset_dir.exists():
-        return samples
-    for class_dir in sorted(dataset_dir.iterdir()):
-        if class_dir.is_dir():
-            files = dataset_image_files(class_dir)
-            samples.append((class_dir.name, files[:per_class]))
-    return samples
-
-
-def validation_generator(image_size: tuple[int, int], batch_size: int, validation_split: float):
-    datagen = tf.keras.preprocessing.image.ImageDataGenerator(
-        rescale=1.0 / 255.0,
-        validation_split=validation_split,
-    )
-    return datagen.flow_from_directory(
-        DATASET_DIR,
-        target_size=image_size,
-        batch_size=batch_size,
-        class_mode="categorical",
-        subset="validation",
-        shuffle=False,
-        seed=42,
-    )
-
-
-def labels_from_generator(generator):
-    ordered = sorted(generator.class_indices.items(), key=lambda item: item[1])
-    return [label.replace("_", " ").title() for label, _ in ordered]
-
-
-def evaluate_model_on_validation(model_path: str, generator):
-    model = load_model(model_path)
-    model.compile(loss="categorical_crossentropy", metrics=["accuracy"])
-    generator.reset()
-    loss, accuracy = model.evaluate(generator, verbose=0)
-    generator.reset()
-    probabilities = model.predict(generator, verbose=0)
-    predicted = np.argmax(probabilities, axis=1)
-    actual = generator.classes
-    matrix = tf.math.confusion_matrix(
-        actual,
-        predicted,
-        num_classes=len(generator.class_indices),
-    ).numpy()
-
-    labels = labels_from_generator(generator)
-    per_class = []
-    for index, label in enumerate(labels):
-        tp = matrix[index, index]
-        actual_total = np.sum(matrix[index, :])
-        predicted_total = np.sum(matrix[:, index])
-        precision = tp / predicted_total if predicted_total else 0.0
-        recall = tp / actual_total if actual_total else 0.0
-        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
-        per_class.append({
-            "label": label,
-            "precision": round(precision, 4),
-            "recall": round(recall, 4),
-            "f1_score": round(f1, 4),
-            "support": int(actual_total),
-        })
-
-    macro_precision = float(np.mean([row["precision"] for row in per_class]))
-    macro_recall = float(np.mean([row["recall"] for row in per_class]))
-    macro_f1 = float(np.mean([row["f1_score"] for row in per_class]))
-
-    return {
-        "loss": float(loss),
-        "accuracy": float(accuracy),
-        "confusion_matrix": matrix,
-        "per_class": per_class,
-        "macro_precision": round(macro_precision, 4),
-        "macro_recall": round(macro_recall, 4),
-        "macro_f1": round(macro_f1, 4),
-    }
-
-
-def show_eda_tab():
-    st.subheader("Dataset EDA")
-    if not DATASET_DIR.exists():
-        st.error("Dataset folder not found: datasets")
-        return
-
-    st.write("### Class distribution")
-    summary = dataset_summary(DATASET_DIR)
-    if not summary:
-        st.warning("No class subfolders found in the dataset directory.")
-        return
-
-    st.write(summary)
-    st.bar_chart(summary)
-
-    st.write("### Sample images")
-    sample_rows = sample_dataset_images(DATASET_DIR)
-    for label, paths in sample_rows:
-        if not paths:
-            continue
-        st.markdown(f"**{label}**")
-        cols = st.columns(len(paths))
-        for col, path in zip(cols, paths):
-            with col:
-                st.image(str(path), caption=path.name, use_column_width=True)
-
-
-def show_metrics_tab():
-    st.subheader("Validation metrics")
-    if not DATASET_DIR.exists():
-        st.error("Dataset folder not found: datasets")
-        return
-
-    st.write(
-        "Use the dataset validation split to evaluate all trained models and show summary metrics." 
-        "The dataset must be organized into class subfolders."
-    )
-
-    if not st.button("Evaluate trained models", type="primary"):
-        st.info("Click the button to load trained models and compute validation metrics.")
-        return
-
-    try:
-        validation_data = validation_generator(IMAGE_SIZE, EVAL_BATCH_SIZE, VALIDATION_SPLIT)
-    except Exception as exc:
-        st.error("Failed to create validation dataset from the dataset folder.")
-        st.exception(exc)
-        return
-
-    labels = labels_from_generator(validation_data)
-    st.write(f"Validation classes: {', '.join(labels)}")
-    st.write(f"Validation samples: {validation_data.samples}")
-
-    metrics_summary = []
-    for key, info in BENCHMARK_MODELS.items():
-        path = Path(info["path"])
-        if not path.exists():
-            continue
-        with st.spinner(f"Evaluating {info['label']}..."):
-            result = evaluate_model_on_validation(str(path), validation_data)
-        metrics_summary.append(
-            {
-                "Model": info["label"],
-                "Val loss": result["loss"],
-                "Val accuracy": f"{result['accuracy']:.2%}",
-                "Macro precision": f"{result['macro_precision']:.2%}",
-                "Macro recall": f"{result['macro_recall']:.2%}",
-                "Macro F1": f"{result['macro_f1']:.2%}",
-            }
-        )
-        st.write(f"#### {info['label']}")
-        st.write("**Per-class metrics**")
-        st.dataframe(
-            {
-                row["label"]: {
-                    "precision": f"{row['precision']:.2%}",
-                    "recall": f"{row['recall']:.2%}",
-                    "f1_score": f"{row['f1_score']:.2%}",
-                    "support": row["support"],
-                }
-                for row in result["per_class"]
-            },
-            use_container_width=True,
-        )
-        st.write("**Confusion matrix**")
-        st.dataframe(
-            pd.DataFrame(
-                result["confusion_matrix"],
-                index=labels,
-                columns=labels,
-            ),
-            use_container_width=True,
-        )
-        validation_data.reset()
-
-    if not metrics_summary:
-        st.warning("No trained models found in the trained_models folder.")
-        return
-
-    st.write("### Model metrics summary")
-    st.dataframe(metrics_summary, use_container_width=True)
 
 
 # ---------------------------------------------------------------------------
@@ -590,15 +384,7 @@ def run_benchmark_tab(labels):
 # App layout
 # ---------------------------------------------------------------------------
 
-st.title("Eye State Model Explorer")
+st.title("Eye State Model Benchmark")
 
-tab_eda, tab_metrics = st.tabs(["EDA", "Metrics & Benchmark"])
-
-with tab_eda:
-    show_eda_tab()
-
-with tab_metrics:
-    show_metrics_tab()
-    st.divider()
-    bench_labels = load_labels(DEFAULT_LABELS_PATH)
-    run_benchmark_tab(bench_labels)
+bench_labels = load_labels(DEFAULT_LABELS_PATH)
+run_benchmark_tab(bench_labels)
