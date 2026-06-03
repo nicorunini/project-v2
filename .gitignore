@@ -1,0 +1,10 @@
+datasets/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv/
+venv/
+C:\tmp\project_v2_env/
+
