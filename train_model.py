@@ -21,28 +21,15 @@ MODEL_NAMES = ["custom_cnn", "efficientnet_b0", "mobilenet_v2", "densenet_121"]
 # ---------------------------------------------------------------------------
 
 def build_custom_cnn(image_size: int, class_count: int):
-    """Improved custom CNN with separable convs, normalization, and dropout."""
+    """Original custom CNN — used as the baseline."""
     model = models.Sequential(name="custom_cnn")
-    model.add(layers.Input(shape=(image_size, image_size, 3)))
-    model.add(layers.Conv2D(32, 3, padding="same", activation="relu"))
-    model.add(layers.BatchNormalization())
-    model.add(layers.SeparableConv2D(48, 3, padding="same", activation="relu"))
-    model.add(layers.BatchNormalization())
-    model.add(layers.MaxPooling2D(2))
-
-    model.add(layers.SeparableConv2D(64, 3, padding="same", activation="relu"))
-    model.add(layers.BatchNormalization())
-    model.add(layers.SeparableConv2D(96, 3, padding="same", activation="relu"))
-    model.add(layers.BatchNormalization())
-    model.add(layers.MaxPooling2D(2))
-
-    model.add(layers.SeparableConv2D(128, 3, padding="same", activation="relu"))
-    model.add(layers.BatchNormalization())
-    model.add(layers.GlobalAveragePooling2D())
-    model.add(layers.Dropout(0.35))
-    model.add(layers.Dense(96, activation="relu"))
-    model.add(layers.BatchNormalization())
-    model.add(layers.Dropout(0.3))
+    model.add(layers.Conv2D(32, (3, 3), activation="relu",
+                            input_shape=(image_size, image_size, 3)))
+    model.add(layers.MaxPooling2D((2, 2)))
+    model.add(layers.Conv2D(64, (3, 3), activation="relu"))
+    model.add(layers.MaxPooling2D((2, 2)))
+    model.add(layers.Flatten())
+    model.add(layers.Dense(64, activation="relu"))
     model.add(layers.Dense(class_count, activation="softmax"))
     return model
 
@@ -116,15 +103,12 @@ def create_generators(args):
     datagen = ImageDataGenerator(
         rescale=1.0 / 255.0,
         validation_split=args.validation_split,
-        rotation_range=20,
-        width_shift_range=0.12,
-        height_shift_range=0.12,
-        shear_range=0.1,
-        zoom_range=0.15,
-        brightness_range=[0.7, 1.3],
-        channel_shift_range=15.0,
+        rotation_range=15,
+        width_shift_range=0.1,
+        height_shift_range=0.1,
         horizontal_flip=True,
-        fill_mode="nearest",
+        zoom_range=0.1,
+        brightness_range=[0.8, 1.2],
     )
     val_datagen = ImageDataGenerator(
         rescale=1.0 / 255.0,
