@@ -21,11 +21,12 @@ st.set_page_config(page_title="Eye State Model Explorer", layout="wide")
 # Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_MODEL_PATH = "cnn_classifier.h5"
-DEFAULT_LABELS_PATH = "labels.txt"
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_MODEL_PATH = str(BASE_DIR / "cnn_classifier.h5")
+DEFAULT_LABELS_PATH = str(BASE_DIR / "labels.txt")
 FALLBACK_LABELS = ["Closed", "Open", "Partially Closed"]
 IMAGE_SIZE = (128, 128)
-DATASET_DIR = Path("datasets")
+DATASET_DIR = BASE_DIR / "datasets"
 VALIDATION_SPLIT = 0.2
 EVAL_BATCH_SIZE = 16
 EDA_SAMPLE_IMAGES_PER_CLASS = 3
